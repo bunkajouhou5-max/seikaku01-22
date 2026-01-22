@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>防災タイプ診断</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+:root{
+  --bg:#FFF8E7;
+  --card:#ffffff;
+  --text:#222;
+  --muted:#666;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  padding:20px;
+}
+.card{
+  max-width:900px;
+  margin:0 auto 20px;
+  background:var(--card);
+  border-radius:20px;
+  padding:22px;
+  box-shadow:0 10px 24px rgba(0,0,0,.08);
+}
+.center{text-align:center}
+.hidden{display:none}
+
+button{
+  width:100%;
+  padding:14px;
+  margin-top:12px;
+  border:none;
+  border-radius:14px;
+  font-size:16px;
+  font-weight:800;
+  background:linear-gradient(135deg,#FF9A5A,#FF7A18);
+  color:#fff;
+  cursor:pointer;
+}
+
+.question{font-size:20px;font-weight:800;margin:12px 0}
+.choices{display:grid;gap:12px}
+.progress{font-size:13px;color:var(--muted)}
+.pill{
+  display:inline-block;
+  padding:6px 14px;
+  border-radius:999px;
+  background:rgba(77,182,172,.15);
+  font-weight:700;
+  font-size:13px;
+}
+
+.stats{display:grid;gap:12px;margin-top:14px}
+.stat{background:#fafafa;border-radius:14px;padding:14px;font-weight:700}
+.stat strong{display:block;margin-bottom:6px}
+
+.message{
+  margin-top:14px;
+  background:rgba(255,255,255,.75);
+  padding:14px;
+  border-radius:14px;
+  font-weight:700;
+}
+
+.chartWrap{
+  position:relative;
+  width:100%;
+  height:320px;
+  margin:10px auto 0;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+
+/* ===== Result animation ===== */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fadeInUp {
+  animation: fadeUp .45s ease-out both;
+}
+
+
+.typeHighlight{
+  display:inline-block;
+  padding:8px 16px;
+  border-radius:16px;
+  background:rgba(255,255,255,.6);
+  box-shadow:0 8px 18px rgba(0,0,0,.08);
+}
+
+/* ランク連動（チャートと同系色） */
+.type-gold{
+  background:linear-gradient(
+    135deg,
+    rgba(255,215,0,.35),
+    rgba(255,235,150,.25)
+  );
+}
+.type-silver{
+  background:linear-gradient(
+    135deg,
+    rgba(200,205,210,.45),
+    rgba(240,245,250,.35)
+  );
+}
+.type-bronze{
+  background:linear-gradient(
+    135deg,
+    rgba(205,127,50,.35),
+    rgba(255,210,160,.25)
+  );
+}
+
+/* ===== 結果ヘッダー整形 ===== */
+.resultHeader{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:6px;
+  margin:10px 0 14px;
+}
+
+/* ランクは控えめ */
+.rankPill{
+  font-size:12px;
+  opacity:.85;
+}
+
+/* 診断タイプは主役 */
+.typeTitle{
+  font-size:28px;
+  font-weight:1000;
+  letter-spacing:.03em;
+  text-align:center;
+}
+
+
+/* ===== スコアカードを“割合で塗る” + ランク統一色 ===== */
+.stat.scoreFill{
+  position:relative;
+  overflow:hidden;
+  border:1px solid rgba(0,0,0,.06);
+}
+
+.stat.scoreFill::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  width:var(--fill, 0%);
+  background:linear-gradient(
+    90deg,
+    rgba(var(--accent-rgb, 77,182,172), var(--gradA, .22)),
+    rgba(var(--accent-rgb, 77,182,172), var(--gradB, .12))
+  );
+  pointer-events:none;
+}
+
+.stat.scoreFill > *{
+  position:relative;
+}
+
+.stat{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+.stat span{
+  font-weight:900;
+}
+
+/* ランクに合わせたアクセント色（RGB） */
+.accent-gold{   --accent-rgb: 255, 170, 0; }   /* ゴールド系 */
+.accent-silver{ --accent-rgb: 130, 140, 150; } /* シルバー系 */
+.accent-bronze{ --accent-rgb: 170, 95, 30; }   /* ブロンズ系 */
+
+
+/* 結果画面に付いた accent-rgb をタイプ枠にも反映 */
+#result .typeHighlight{
+  background:linear-gradient(
+    135deg,
+    rgba(var(--accent-rgb, 77,182,172), .22),
+    rgba(255,255,255,.55)
+  );
+}
+
+
+
+
+</style>
+</head>
+
+<body>
+
+<div id="start" class="card center">
+  <h1>防災タイプ診断</h1>
+  <p class="progress">あなたの「準備・知識・行動」の特徴をチェックします</p>
+  <button onclick="start()">はじめる</button>
+</div>
+
+<div id="quiz" class="card hidden">
+  <div class="progress" id="progress"></div>
+  <div class="pill" id="tag"></div>
+  <div class="question" id="question"></div>
+  <div class="choices" id="choices"></div>
+
+  <div style="display:flex; gap:10px; margin-top:16px;">
+    <button onclick="goBack()" style="background:#ccc;color:#222;">
+      ひとつ前に戻る
+    </button>
+    <button onclick="goTop()" style="background:#eee;color:#222;">
+      トップに戻る
+    </button>
+  </div>
+</div>
+
+
+<div id="result" class="card hidden center">
+  <h2>診断結果</h2>
+<div class="resultHeader center">
+  <div id="rank" class="pill rankPill"></div>
+  <div id="resultType" class="typeTitle typeHighlight"></div>
+</div>
+
+
+  <div class="chartWrap">
+    <canvas id="radar"></canvas>
+  </div>
+
+  <div class="stats">
+    <div class="stat" id="cardPrep">準備：<span id="pPrep"></span></div>
+    <div class="stat" id="cardKnow">知識：<span id="pKnow"></span></div>
+    <div class="stat" id="cardAct">行動：<span id="pAct"></span></div>
+  </div>
+
+
+  <div class="message" id="message"></div>
+  <div id="detailComments" class="stats"></div>
+
+  <div id="bagLink" class="hidden">
+    <div class="message">
+      準備の面で、少し不安が見られました。<br>
+      非常持ち出し袋の準備状況をチェックできる診断があります。
+    </div>
+    <button onclick="openBagCheck()">非常袋診断をチェックする</button>
+  </div>
+
+  <button onclick="location.reload()">もう一度</button>
+</div>
+
+
+
+<script>
+const EMERGENCY_BAG_URL = "https://example.com";
+
+/* ===== 質問34問：完全定義 ===== */
+const questions = [
+  // 準備11
+  {t:"prep",g:"準備",q:"自分が行く避難所の場所を知っていますか？",c:[[1,"知っている"],[0.5,"多分知っている"],[0,"知らない"]]},
+  {t:"prep",g:"準備",q:"その避難所に実際に行ったことはありますか？",c:[[1,"行ったことがある"],[0.5,"近くまでは行ったことがある"],[0,"行ったことがない"]]},
+  {t:"prep",g:"準備",q:"非常持ち出し袋を準備していますか？",c:[[1,"準備している"],[0.5,"準備してはいないが必要なものは家にある"],[0,"ない"]]},
+  {t:"prep",g:"準備",q:"非常持ち出し袋の置き場所が分かりますか？",c:[[1,"分かる"],[0.5,"多分分かる"],[0,"分からない"]]},
+  {t:"prep",g:"準備",q:"非常持ち出し袋の中身を把握していますか？",c:[[1,"把握している"],[0.5,"一部だけ知っている"],[0,"全く把握していない"]]},
+  {t:"prep",g:"準備",q:"必要な水や食料の量を考えたことがありますか？",c:[[1,"具体的に考えたことがある"],[0.5,"なんとなく考えたことがある"],[0,"ない"]]},
+  {t:"prep",g:"準備",q:"家族と災害時の行動を話し合いましたか？",c:[[1,"話し合ったことがある"],[0.5,"なんとなく話したことはある"],[0,"ない"]]},
+  {t:"prep",g:"準備",q:"災害時の連絡方法を決めていますか？",c:[[1,"しっかり決めている"],[0.5,"なんとなく決めている"],[0,"決めていない"]]},
+  {t:"prep",g:"準備",q:"一人で被災した場合を想定していますか？",c:[[1,"具体的に考えたことがある"],[0.5,"なんとなく想像したことはある"],[0,"ない"]]},
+  {t:"prep",g:"準備",q:"非常持ち出し袋の中に口腔ケア用品は家にありますか？",c:[[1,"ある"],[0.5,"非常持ち出し袋にはないが家にはある"],[0,"ない"]]},
+  {t:"prep",g:"準備",q:"自分の病気や治療内容を説明できますか？",c:[[1,"できる自信がある"],[0.5,"なんとなく出来ると思う"],[0,"できない"],[1,"病気なし"]]},
+
+  // 知識10
+  {t:"knowledge",g:"知識",q:"「災害関連死」という言葉を知っていますか？",c:[[1,"知っている"],[0,"初めて聞いた"]]},
+  {t:"knowledge",g:"知識",q:"「災害関連死」の申請・認定制度を知っていますか？",c:[[1,"知っている"],[0,"初めて聞いた"]]},
+  {t:"knowledge",g:"知識",q:"「災害関連死」に認定されると支援につながる可能性を知っていますか？",c:[[1,"知っている"],[0,"初めて聞いた"]]},
+  {t:"knowledge",g:"知識",q:"「災害関連死」には心理的要因によるものも含まれると知っていますか？",c:[[1,"知っている"],[0,"初めて聞いた"]]},
+  {t:"knowledge",g:"知識",q:"口腔内悪化と肺炎の関係を知っていますか？",c:[[1,"知っている"],[0,"初めて聞いた"]]},
+  {t:"knowledge",g:"知識",q:"避難生活では水分補給が重要だと知っていますか？",c:[[1,"知っている"],[0,"初めて聞いた"]]},
+  {t:"knowledge",g:"知識",q:"ペットボトル照明を知っていますか？",c:[[1,"知っている"],[0,"初めて聞いた"]]},
+  {t:"knowledge",g:"知識",q:"新聞紙と袋で食器が作れると知っていますか？",c:[[1,"知っている"],[0,"初めて聞いた"]]},
+  {t:"knowledge",g:"知識",q:"レインコートで寒さ対策できると知っていますか？",c:[[1,"知っている"],[0,"初めて聞いた"]]},
+  {t:"knowledge",g:"知識",q:"災害時の段ボールの活用法を知っていますか？",c:[[1,"知っている"],[0,"どう使えるのかわからない"]]},
+
+  // 行動13
+  {t:"action",g:"行動",q:"地震時に頭を守れますか？",c:[[1,"守れる"],[0.5,"守れるか不安"],[0,"守れない"]]},
+  {t:"action",g:"行動",q:"体調不良を周囲に伝えられますか？",c:[[1,"伝えられる"],[0.5,"伝えられるか不安"],[0,"伝えられない"]]},
+  {t:"action",g:"行動",q:"困ったときまわりの大人に相談できますか？",c:[[1,"できる"],[0.5,"できるか不安"],[0,"できない"]]},
+  {t:"action",g:"行動",q:"災害時他人の異変を周りの大人に伝えられますか？",c:[[1,"伝えられる"],[0.5,"伝えられるか不安"],[0,"伝えられない"]]},
+  {t:"action",g:"行動",q:"命の危険が迫る時、大声で助けを求められますか？",c:[[1,"求められる"],[0.5,"求められるか不安"],[0,"求められない"]]},
+  {t:"action",g:"行動",q:"災害時指示を落ち着いて聞けますか？",c:[[1,"聞ける"],[0.5,"聞けるか不安"],[0,"聞けない"]]},
+  {t:"action",g:"行動",q:"避難している間、自分の体調変化に気づけますか？",c:[[1,"気づける"],[0.5,"気づけるか不安"],[0,"気づけない"]]},
+  {t:"action",g:"行動",q:"災害時口腔ケアを意識できますか？",c:[[1,"できる"],[0.5,"できるか不安"],[0,"できない"]]},
+  {t:"action",g:"行動",q:"災害避難時、医療について相談できますか？",c:[[1,"できる"],[0.5,"できるか不安"],[0,"できない"]]},
+  {t:"action",g:"行動",q:"台風時に外出を控えられますか？",c:[[1,"控えられる"],[0.5,"控えられないこともある"],[0,"控えられない"]]},
+  {t:"action",g:"行動",q:"危険な場所を避けられますか？",c:[[1,"避けられる"],[0.5,"避けられるか不安"],[0,"避けられない"]]},
+  {t:"action",g:"行動",q:"非常時、避難情報を確認できますか？",c:[[1,"できる"],[0.5,"できるか不安"],[0,"できない"]]},
+  {t:"action",g:"行動",q:"天候が怪しい時、地域の災害情報を確認できますか？",c:[[1,"できる"],[0.5,"できるか不安"],[0,"できない"]]},
+];
+
+let i=0, score={prep:0,knowledge:0,action:0}, max={prep:0,knowledge:0,action:0}, chart;
+const history = [];
+
+
+function start(){
+  document.getElementById("start").classList.add("hidden");
+  document.getElementById("quiz").classList.remove("hidden");
+  show();
+}
+function show(){
+  const q=questions[i];
+  document.getElementById("progress").textContent=`${i+1}/${questions.length}`;
+  document.getElementById("tag").textContent=q.g;
+  document.getElementById("question").textContent=q.q;
+  const c=document.getElementById("choices"); c.innerHTML="";
+  q.c.forEach(o=>{
+    const b=document.createElement("button");
+    b.textContent=o[1];
+    b.onclick = ()=>{
+      history.push({ index:i, type:q.t, value:o[0] });
+      score[q.t] += o[0];
+      max[q.t] += 1;
+      i++;
+      i < questions.length ? show() : result();
+    };
+
+    c.appendChild(b);
+  });
+}
+function rate(t){return Math.round((score[t]/max[t])*100)||0;}
+
+function goBack(){
+  if(history.length === 0) return;
+
+  const last = history.pop();
+  i = last.index;
+  score[last.type] -= last.value;
+  max[last.type] -= 1;
+
+  show();
+}
+
+function goTop(){
+  if(!confirm("診断を最初からやり直しますか？")) return;
+
+  i = 0;
+  history.length = 0;
+  score = {prep:0, knowledge:0, action:0};
+  max   = {prep:0, knowledge:0, action:0};
+
+  document.getElementById("quiz").classList.add("hidden");
+  document.getElementById("result").classList.add("hidden");
+  document.getElementById("start").classList.remove("hidden");
+}
+
+
+function buildDetailComments(p,k,a){
+  const list=[];
+  if(p<50) list.push({title:"準備",text:"持ち出し袋や避難所など、まず1つだけ決めてみましょう。"});
+  if(k<50) list.push({title:"知識",text:"知るだけで防げるリスクがあります。気になった言葉を1つ調べてみましょう。"});
+  if(a<50) list.push({title:"行動",text:"困ったら相談していいと、平常時に意識しておくことが大切です。"});
+  return list;
+
+}
+
+function getDisasterType(p, k, a){
+  // 特殊タイプ（優先）
+  if(p === 100 && k === 100 && a === 100){
+    return "なんでもバッチリタイプ";
+  }
+  if(p <= 40 && k <= 40 && a <= 40){
+    return "ノープランタイプ";
+  }
+
+  // 最大値を求める
+  const maxScore = Math.max(p, k, a);
+  const types = [];
+
+  if(p === maxScore) types.push("フルレディタイプ");
+  if(k === maxScore) types.push("サポータータイプ");
+  if(a === maxScore) types.push("サバイバータイプ");
+
+  // 複合対応
+  return types.join(" × ");
+}
+
+function getRank(p, k, a){
+  const maxScore = Math.max(p, k, a);
+
+  if(maxScore === 100) return "ゴールド";
+  if(maxScore >= 85)  return "シルバー";
+  return "ブロンズ";
+}
+
+function applyScoreFill(el, percent){
+  const p = Math.max(0, Math.min(100, percent));
+  el.classList.add("scoreFill");
+  el.style.setProperty("--fill", `${p}%`);
+
+  // 高いほど濃く、低いほど淡く（上品な見え方）
+  const gradA = 0.10 + (p/100)*0.18; // 0.10〜0.28
+  const gradB = 0.06 + (p/100)*0.10; // 0.06〜0.16
+  el.style.setProperty("--gradA", gradA.toFixed(3));
+  el.style.setProperty("--gradB", gradB.toFixed(3));
+}
+
+function applyAccentByRank(targetEl, rank){
+  targetEl.classList.remove("accent-gold","accent-silver","accent-bronze");
+  targetEl.classList.add(
+    rank === "ゴールド" ? "accent-gold" :
+    rank === "シルバー" ? "accent-silver" :
+    "accent-bronze"
+  );
+}
+
+
+
+
+function openBagCheck(){ window.open(EMERGENCY_BAG_URL,"_blank"); }
+
+function result(){
+  document.getElementById("quiz").classList.add("hidden");
+  document.getElementById("result").classList.remove("hidden");
+  const resultEl = document.getElementById("result");
+  resultEl.classList.remove("fadeInUp"); // 2回目以降も再生させる
+  void resultEl.offsetWidth;             // reflowでアニメを再トリガ
+  resultEl.classList.add("fadeInUp");
+
+
+  const p=rate("prep"),k=rate("knowledge"),a=rate("action");
+  const type = getDisasterType(p, k, a);
+  const rank = getRank(p, k, a);
+
+  // ===== 小中学生向け：やさしい結果コメント =====
+  const rankText = {
+    "ゴールド":"ばっちり！このまま続けよう。",
+    "シルバー":"かなりいいね！あと少しでばっちり。",
+    "ブロンズ":"これから伸びる！まずは1つやってみよう。"
+  }[rank] || "";
+
+  const msg = [];
+    msg.push(`いまの防災力：${rank}（${rankText}）`);
+    msg.push(`あなたは「${type}」タイプ！`);
+
+  const low = [];
+  if(p < 50) low.push("準備");
+  if(k < 50) low.push("知識");
+  if(a < 50) low.push("行動");
+
+  if(low.length === 0){
+    msg.push("3つともバランスよくできています。つづけるのがいちばん強い。");
+    msg.push("次に足すなら「家族と連絡方法を決める」がおすすめ。");
+  }else{
+    // 弱い軸から“今すぐできる1つ”を提案
+    const nextOne =
+      low.includes("準備") ? "避難所の場所を1回だけ地図で見てみよう" :
+      low.includes("知識") ? "「災害関連死」って言葉を1分だけ調べてみよう" :
+      "困ったら大人に言う練習（言い方を決める）をしてみよう";
+
+    msg.push(`まず伸ばすなら「${low[0]}」！`);
+    msg.push(`今日できるミッション：${nextOne}`);
+  }
+
+  document.getElementById("message").textContent = msg.join(" ");
+
+
+  // 結果画面全体にランクアクセントを付与（統一感の核）
+  applyAccentByRank(document.getElementById("result"), rank);
+
+
+  function getChartStyleByRank(rank){
+  if(rank === "ゴールド"){
+    return {
+      bg: "rgba(255, 200, 60, .28)",
+      border: "rgba(255, 170, 0, .90)",
+      point: "rgba(255, 170, 0, 1)"
+    };
+  }
+  if(rank === "シルバー"){
+    return {
+      bg: "rgba(180, 190, 200, .25)",
+      border: "rgba(130, 140, 150, .90)",
+      point: "rgba(130, 140, 150, 1)"
+    };
+  }
+  // ブロンズ
+  return {
+    bg: "rgba(205, 127, 50, .22)",
+    border: "rgba(170, 95, 30, .90)",
+    point: "rgba(170, 95, 30, 1)"
+  };
+}
+
+const typeEl = document.getElementById("resultType");
+typeEl.textContent = `診断タイプ：${type}`;
+
+// ランク連動の背景色を付与
+typeEl.classList.remove("type-gold","type-silver","type-bronze");
+typeEl.classList.add(
+  rank === "ゴールド" ? "type-gold" :
+  rank === "シルバー" ? "type-silver" :
+  "type-bronze"
+);
+
+  document.getElementById("rank").textContent = `ランク：${rank}`;
+
+  document.getElementById("pPrep").textContent=p+"%";
+  document.getElementById("pKnow").textContent=k+"%";
+  document.getElementById("pAct").textContent=a+"%";
+
+  applyScoreFill(document.getElementById("cardPrep"), p);
+  applyScoreFill(document.getElementById("cardKnow"), k);
+  applyScoreFill(document.getElementById("cardAct"), a);
+
+
+
+  const wrap=document.getElementById("detailComments");
+  wrap.innerHTML="";
+  buildDetailComments(p,k,a).forEach(d=>{
+    const e=document.createElement("div");
+    e.className="stat";
+    e.innerHTML=`<strong>${d.title}</strong>${d.text}`;
+    wrap.appendChild(e);
+  });
+
+  document.getElementById("bagLink").classList.toggle("hidden",p>=50);
+
+  // 連続実行でも崩れないように破棄
+if(chart) chart.destroy();
+
+const style = getChartStyleByRank(rank);
+
+chart = new Chart(document.getElementById("radar"),{
+  type:"radar",
+  data:{
+    labels:["準備","知識","行動"],
+    datasets:[{
+      data:[p,k,a],
+      backgroundColor: style.bg,
+      borderColor: style.border,
+      pointBackgroundColor: style.point,
+      borderWidth: 2,
+      pointRadius: 3
+    }]
+  },
+  options:{
+    scales:{ r:{ min:0, max:100 } },
+    plugins:{ legend:{ display:false } }
+  }
+});
+
+}
+</script>
+
+</body>
+</html>
